@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
 export class ApiError extends Error {
   status: number;
@@ -10,13 +10,14 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isFormData = options.body instanceof FormData;
+
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers: isFormData
+      ? { ...options.headers }
+      : { 'Content-Type': 'application/json', ...options.headers },
   });
 
   if (!res.ok) {
@@ -29,4 +30,8 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   }
 
   return res.json() as Promise<T>;
+}
+
+export function resolveAssetUrl(url: string): string {
+  return url.startsWith('http') ? url : `${API_URL}${url}`;
 }

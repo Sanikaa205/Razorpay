@@ -50,7 +50,7 @@ model Product {
   sizeOptions String[]
   stock      Int      @default(0)
   photoUrl   String
-  isAiReady  Boolean  @default(false)
+  isAiReady  Boolean  @default(true)
   blocked    Boolean  @default(false)
   createdAt  DateTime @default(now())
 
