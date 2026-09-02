@@ -7,9 +7,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Placeholder model so `prisma generate` / `prisma migrate` work out of the box.
-// Replace with real domain models as features are built.
-model Ping {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
+enum ActionType {
+  info_only
+  order_attempt
+  out_of_stock
+}
+
+enum OrderStatus {
+  pending_approval
+  auto_approved
+  merchant_approved
+  rejected
+  paid
+  failed
+}
+
+model Merchant {
+  id                    String         @id @default(uuid())
+  name                  String
+  email                 String         @unique
+  passwordHash          String
+  razorpayAccountId     String?
+  autoApproveLimit      Decimal        @default(0) @db.Decimal(10, 2)
+  requireManualApproval Boolean        @default(false)
+  createdAt             DateTime       @default(now())
+
+  products      Product[]
+  conversations Conversation[]
+  orders        Order[]
+  auditLogs     AuditLog[]
+
+  @@map("merchants")
+}
+
+model Product {
+  id         String   @id @default(uuid())
+  merchantId String
+  name       String
+  price      Decimal  @db.Decimal(10, 2)
+  material   String
+  color      String
+  sizeOptions String[]
+  stock      Int      @default(0)
+  photoUrl   String
+  isAiReady  Boolean  @default(false)
+  blocked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@index([merchantId])
+  @@map("products")
+}
+
+model Conversation {
+  id              String     @id @default(uuid())
+  merchantId      String
+  buyerQuery      String
+  storeAiResponse String
+  actionType      ActionType
+  createdAt       DateTime   @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@index([merchantId])
+  @@map("conversations")
+}
+
+model Order {
+  id               String      @id @default(uuid())
+  merchantId       String
+  productId        String
+  conversationId   String?
+  orderValue       Decimal     @db.Decimal(10, 2)
+  status           OrderStatus @default(pending_approval)
+  razorpayOrderId  String?
+  razorpayPaymentId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  merchant     Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  auditLogs    AuditLog[]
+
+  @@index([merchantId])
+  @@index([productId])
+  @@index([conversationId])
+  @@map("orders")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  merchantId String
+  orderId    String?
+  step       String
+  outcome    String
+  metadata   Json?
+  timestamp  DateTime @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@map("audit_logs")
 }

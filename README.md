@@ -18,7 +18,16 @@ product features have been built yet.
 
 - Node.js 18+
 - npm 9+
-- A running Postgres instance (local or hosted)
+- A running Postgres instance (local or hosted). For local dev without
+  installing Postgres directly, you can run it via Docker:
+
+  ```bash
+  docker run -d --name ai-agent-storefront-db \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=ai_agent_storefront \
+    -p 5432:5432 postgres:16-alpine
+  ```
 
 ## Setup
 
@@ -36,8 +45,9 @@ product features have been built yet.
    ```
 
    Fill in `server/.env` with your Postgres connection string and any API
-   keys you have (Anthropic, Razorpay). These can be left blank for now if
-   you only want to run the health-check skeleton.
+   keys you have (Anthropic, Razorpay). If you used the Docker command above,
+   `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ai_agent_storefront?schema=public"`
+   works as-is.
 
 3. Generate the Prisma client (requires `DATABASE_URL` to be set):
 
@@ -49,6 +59,12 @@ product features have been built yet.
 
    ```bash
    npm run prisma:migrate --workspace server
+   ```
+
+   To seed sample data (1 test merchant + ~19 fashion products):
+
+   ```bash
+   npm run prisma:seed --workspace server
    ```
 
 4. Build the shared types package (server and client both depend on it):
