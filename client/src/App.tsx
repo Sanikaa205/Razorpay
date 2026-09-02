@@ -8,6 +8,7 @@ import Catalog from './pages/dashboard/Catalog';
 import SafetySettings from './pages/dashboard/SafetySettings';
 import LiveOrders from './pages/dashboard/LiveOrders';
 import Payments from './pages/dashboard/Payments';
+import StoreAiTest from './pages/dashboard/StoreAiTest';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="safety-settings" element={<SafetySettings />} />
           <Route path="orders" element={<LiveOrders />} />
           <Route path="payments" element={<Payments />} />
+          <Route path="store-ai-test" element={<StoreAiTest />} />
         </Route>
       </Route>
 

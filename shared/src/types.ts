@@ -67,3 +67,30 @@ export interface CsvUploadResponse {
   skipped: number;
   errors: CsvUploadRowError[];
 }
+
+export type ActionType = 'info_only' | 'order_attempt' | 'out_of_stock';
+
+export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
+
+export interface StoreAiMatchedProduct {
+  id: string;
+  name: string;
+  price: string;
+  photo_url: string;
+  material: string;
+  color: string;
+  size_options: string[];
+  stock_status: StockStatus;
+}
+
+export interface StoreAiQueryRequest {
+  merchantId: string;
+  buyerQuery: string;
+}
+
+export interface StoreAiQueryResponse {
+  action_type: ActionType;
+  matched_product: StoreAiMatchedProduct | null;
+  is_alternative: boolean;
+  message: string;
+}

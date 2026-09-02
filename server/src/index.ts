@@ -6,6 +6,7 @@ import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
 import { merchantRouter } from './routes/merchant';
 import { productsRouter } from './routes/products';
+import { storeAiRouter } from './routes/storeAi';
 import { UPLOADS_DIR } from './lib/uploads';
 
 const app = express();
@@ -21,6 +22,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/merchant', merchantRouter);
 app.use('/api/products', productsRouter);
+app.use('/api/store-ai', storeAiRouter);
 
 app.listen(port, () => {
   console.log(`Server listening on http://localhost:${port}`);
