@@ -7,6 +7,7 @@ export interface AuthContextValue {
   login: (input: LoginRequest) => Promise<void>;
   signup: (input: SignupRequest) => Promise<void>;
   logout: () => Promise<void>;
+  updateMerchant: (merchant: MerchantProfile) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

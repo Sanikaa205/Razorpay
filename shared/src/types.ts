@@ -131,3 +131,33 @@ export interface ConfirmOrderRequest {
 export interface OrderResponse {
   order: OrderProfile;
 }
+
+export interface OrderWithProduct extends OrderProfile {
+  productName: string;
+  productPhotoUrl: string;
+}
+
+export interface OrderListResponse {
+  orders: OrderWithProduct[];
+}
+
+export interface MerchantSettingsRequest {
+  autoApproveLimit: number;
+  requireManualApproval: boolean;
+  blockedProductIds: string[];
+}
+
+export interface AuditLogEntry {
+  id: string;
+  merchantId: string;
+  orderId: string | null;
+  conversationId: string | null;
+  step: string;
+  outcome: string;
+  metadata: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+export interface AuditLogListResponse {
+  logs: AuditLogEntry[];
+}

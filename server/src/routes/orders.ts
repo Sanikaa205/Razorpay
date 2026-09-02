@@ -1,11 +1,35 @@
 import { Router } from 'express';
-import type { ConfirmOrderRequest, OrderResponse } from '@ai-agent-storefront/shared';
+import type {
+  ConfirmOrderRequest,
+  OrderListResponse,
+  OrderResponse,
+} from '@ai-agent-storefront/shared';
 import { prisma } from '../prisma';
 import { requireAuth } from '../middleware/auth';
 import { toOrderProfile } from '../lib/order';
 import { createPaymentForOrder } from '../lib/payment';
 
 export const ordersRouter = Router();
+
+// Protected: the merchant's own order list, for the dashboard's Payments and
+// Live Orders screens. merchantId is always taken from the session, never
+// from the query string, so a merchant can never list another store's orders.
+ordersRouter.get('/', requireAuth, async (req, res) => {
+  const orders = await prisma.order.findMany({
+    where: { merchantId: req.merchantId },
+    include: { product: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const body: OrderListResponse = {
+    orders: orders.map((order) => ({
+      ...toOrderProfile(order),
+      productName: order.product.name,
+      productPhotoUrl: order.product.photoUrl,
+    })),
+  };
+  res.json(body);
+});
 
 // Public: the buyer explicitly confirming an order they were shown by the Store AI.
 // No merchant session exists here - the buyer isn't a logged-in merchant.
@@ -70,6 +94,7 @@ ordersRouter.post('/confirm', async (req, res) => {
       outcome: status,
       metadata: {
         reason,
+        productName: product.name,
         orderValue: orderValue.toString(),
         autoApproveLimit: merchant.autoApproveLimit.toString(),
         requireManualApproval: merchant.requireManualApproval,

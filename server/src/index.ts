@@ -9,6 +9,7 @@ import { productsRouter } from './routes/products';
 import { storeAiRouter } from './routes/storeAi';
 import { ordersRouter } from './routes/orders';
 import { webhooksRouter } from './routes/webhooks';
+import { auditLogsRouter } from './routes/auditLogs';
 import { UPLOADS_DIR } from './lib/uploads';
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/merchant', merchantRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/store-ai', storeAiRouter);
 app.use('/api/orders', ordersRouter);
+app.use('/api/audit-logs', auditLogsRouter);
 
 app.listen(port, () => {
   console.log(`Server listening on http://localhost:${port}`);

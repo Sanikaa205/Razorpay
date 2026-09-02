@@ -56,9 +56,11 @@ storeAiRouter.post('/query', async (req, res) => {
       step: 'store_ai_query',
       outcome: hallucinationBlocked ? 'hallucination_blocked' : 'success',
       metadata: {
+        conversationId: conversation.id,
         buyerQuery,
         actionType: result.action_type,
         matchedProductId: result.matched_product?.id ?? null,
+        matchedProductName: result.matched_product?.name ?? null,
         isAlternative: result.is_alternative,
       },
     },
