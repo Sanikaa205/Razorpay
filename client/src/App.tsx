@@ -1,30 +1,34 @@
-import { useEffect, useState } from 'react';
-import type { HealthCheckResponse } from '@ai-agent-storefront/shared';
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import DashboardLayout from './layouts/DashboardLayout';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Onboarding from './pages/dashboard/Onboarding';
+import Catalog from './pages/dashboard/Catalog';
+import SafetySettings from './pages/dashboard/SafetySettings';
+import LiveOrders from './pages/dashboard/LiveOrders';
+import Payments from './pages/dashboard/Payments';
 
 function App() {
-  const [health, setHealth] = useState<HealthCheckResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/health`)
-      .then((res) => res.json())
-      .then((data: HealthCheckResponse) => setHealth(data))
-      .catch(() => setError('Could not reach the server.'));
-  }, []);
-
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 text-slate-900">
-      <h1 className="text-3xl font-bold">AI Agent Storefront</h1>
-      {error && <p className="text-red-600">{error}</p>}
-      {!error && !health && <p className="text-slate-500">Checking server health...</p>}
-      {health && (
-        <p className="rounded-md bg-green-100 px-4 py-2 text-green-800">
-          Server status: {health.status} (as of {new Date(health.timestamp).toLocaleTimeString()})
-        </p>
-      )}
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/dashboard/onboarding" replace />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+
+      <Route element={<ProtectedRoute />}>
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index element={<Navigate to="onboarding" replace />} />
+          <Route path="onboarding" element={<Onboarding />} />
+          <Route path="catalog" element={<Catalog />} />
+          <Route path="safety-settings" element={<SafetySettings />} />
+          <Route path="orders" element={<LiveOrders />} />
+          <Route path="payments" element={<Payments />} />
+        </Route>
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
