@@ -4,7 +4,7 @@ import type {
   ActionType,
   StockStatus,
   StoreAiMatchedProduct,
-  StoreAiQueryResponse,
+  StoreAiAnswer,
 } from '@ai-agent-storefront/shared';
 
 const MODEL_ID = 'claude-opus-5';
@@ -129,7 +129,7 @@ interface RawToolOutput {
 }
 
 export interface StoreAiOutcome {
-  result: StoreAiQueryResponse;
+  result: StoreAiAnswer;
   hallucinationBlocked: boolean;
 }
 

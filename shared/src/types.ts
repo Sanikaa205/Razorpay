@@ -88,9 +88,44 @@ export interface StoreAiQueryRequest {
   buyerQuery: string;
 }
 
-export interface StoreAiQueryResponse {
+export interface StoreAiAnswer {
   action_type: ActionType;
   matched_product: StoreAiMatchedProduct | null;
   is_alternative: boolean;
   message: string;
+}
+
+export interface StoreAiQueryResponse extends StoreAiAnswer {
+  conversationId: string;
+}
+
+export type OrderStatus =
+  | 'pending_approval'
+  | 'auto_approved'
+  | 'merchant_approved'
+  | 'rejected'
+  | 'paid'
+  | 'failed';
+
+export interface OrderProfile {
+  id: string;
+  merchantId: string;
+  productId: string;
+  conversationId: string | null;
+  orderValue: string;
+  status: OrderStatus;
+  razorpayOrderId: string | null;
+  razorpayPaymentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConfirmOrderRequest {
+  conversationId: string;
+  productId: string;
+  userConfirmed: boolean;
+}
+
+export interface OrderResponse {
+  order: OrderProfile;
 }

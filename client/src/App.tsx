@@ -9,6 +9,7 @@ import SafetySettings from './pages/dashboard/SafetySettings';
 import LiveOrders from './pages/dashboard/LiveOrders';
 import Payments from './pages/dashboard/Payments';
 import StoreAiTest from './pages/dashboard/StoreAiTest';
+import StorefrontChat from './pages/StorefrontChat';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
       <Route path="/" element={<Navigate to="/dashboard/onboarding" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/store/:merchantId" element={<StorefrontChat />} />
 
       <Route element={<ProtectedRoute />}>
         <Route path="/dashboard" element={<DashboardLayout />}>

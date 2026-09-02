@@ -41,7 +41,7 @@ storeAiRouter.post('/query', async (req, res) => {
 
   const { result, hallucinationBlocked } = outcome;
 
-  await prisma.conversation.create({
+  const conversation = await prisma.conversation.create({
     data: {
       merchantId,
       buyerQuery,
@@ -64,6 +64,6 @@ storeAiRouter.post('/query', async (req, res) => {
     },
   });
 
-  const body: StoreAiQueryResponse = result;
+  const body: StoreAiQueryResponse = { ...result, conversationId: conversation.id };
   res.json(body);
 });
