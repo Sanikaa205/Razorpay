@@ -1,7 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
+
+const DEMO_EMAIL = 'owner@fashionhub.test';
+const DEMO_PASSWORD = 'Demo@1234';
 
 const SIZE_SETS: string[][] = [
   ['S', 'M', 'L'],
@@ -9,6 +12,10 @@ const SIZE_SETS: string[][] = [
   ['M', 'L', 'XL', 'XXL'],
   ['Free Size'],
 ];
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
 
 function placeholderPhoto(seed: string, width = 600, height = 800): string {
   return `https://picsum.photos/seed/${seed}/${width}/${height}`;
@@ -44,16 +51,26 @@ const PRODUCTS: Array<{
   { name: 'Printed Casual Kurta', price: 599, material: 'Rayon', color: 'Sky Blue', stock: 28 },
   { name: 'Tussar Silk Saree', price: 1699, material: 'Tussar Silk', color: 'Olive Green', stock: 9 },
   { name: 'Sleeveless Summer Dress', price: 699, material: 'Cotton', color: 'White Floral', stock: 20 },
+  // Hero product for the demo script's grounded-match query
+  // ("birthday dress, sky blue mesh, front criss-cross, under ₹800").
+  { name: 'Sky Blue Mesh Criss-Cross Dress', price: 749, material: 'Mesh', color: 'Sky Blue', stock: 12 },
 ];
 
 async function main() {
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+
   const merchant = await prisma.merchant.upsert({
-    where: { email: 'owner@fashionhub.test' },
-    update: {},
+    where: { email: DEMO_EMAIL },
+    update: {
+      passwordHash,
+      razorpayAccountId: 'acc_test_fashionhub',
+      autoApproveLimit: 1000,
+      requireManualApproval: false,
+    },
     create: {
       name: 'FashionHub Boutique',
-      email: 'owner@fashionhub.test',
-      passwordHash: 'not-a-real-hash-replace-me',
+      email: DEMO_EMAIL,
+      passwordHash,
       razorpayAccountId: 'acc_test_fashionhub',
       autoApproveLimit: 1000,
       requireManualApproval: false,
@@ -62,27 +79,33 @@ async function main() {
 
   console.log(`Merchant ready: ${merchant.name} (${merchant.id})`);
 
+  // Reset to a clean slate every time this seed runs, so demo day always
+  // starts from zero orders/conversations/audit history.
+  await prisma.auditLog.deleteMany({ where: { merchantId: merchant.id } });
+  await prisma.order.deleteMany({ where: { merchantId: merchant.id } });
+  await prisma.conversation.deleteMany({ where: { merchantId: merchant.id } });
   await prisma.product.deleteMany({ where: { merchantId: merchant.id } });
 
-  const productsData = PRODUCTS.map((p, i) => {
-    const seed = `${merchant.id}-${i}-${randomUUID().slice(0, 6)}`;
-    return {
-      merchantId: merchant.id,
-      name: p.name,
-      price: p.price,
-      material: p.material,
-      color: p.color,
-      sizeOptions: pick(SIZE_SETS, i),
-      stock: p.stock,
-      photoUrl: placeholderPhoto(seed),
-      isAiReady: true,
-      blocked: false,
-    };
-  });
+  const productsData = PRODUCTS.map((p) => ({
+    merchantId: merchant.id,
+    name: p.name,
+    price: p.price,
+    material: p.material,
+    color: p.color,
+    sizeOptions: pick(SIZE_SETS, PRODUCTS.indexOf(p)),
+    stock: p.stock,
+    photoUrl: placeholderPhoto(slugify(p.name)),
+    isAiReady: true,
+    blocked: false,
+  }));
 
   await prisma.product.createMany({ data: productsData });
 
   console.log(`Seeded ${productsData.length} products.`);
+  console.log('---');
+  console.log('Demo login:');
+  console.log(`  email:    ${DEMO_EMAIL}`);
+  console.log(`  password: ${DEMO_PASSWORD}`);
 }
 
 main()

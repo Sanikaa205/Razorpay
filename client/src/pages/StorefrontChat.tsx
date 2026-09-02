@@ -166,6 +166,11 @@ export default function StorefrontChat() {
         <p className="mt-1 text-sm text-slate-500">
           Ask about products in natural language — sizes, colors, prices, availability.
         </p>
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <strong>What&apos;s real vs. simulated:</strong> the catalog, AI matching, order
+          decisions, and Razorpay payments below are fully live — this page just stands in for a
+          buyer&apos;s device on a real storefront, with no separate checkout flow of its own.
+        </p>
       </div>
 
       <div className="flex-1 space-y-4">

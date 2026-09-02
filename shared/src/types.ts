@@ -161,3 +161,7 @@ export interface AuditLogEntry {
 export interface AuditLogListResponse {
   logs: AuditLogEntry[];
 }
+
+export interface ConnectRazorpayAccountRequest {
+  razorpayAccountId: string;
+}

@@ -1,5 +1,9 @@
 import { Router } from 'express';
-import type { AuthResponse, MerchantSettingsRequest } from '@ai-agent-storefront/shared';
+import type {
+  AuthResponse,
+  ConnectRazorpayAccountRequest,
+  MerchantSettingsRequest,
+} from '@ai-agent-storefront/shared';
 import { prisma } from '../prisma';
 import { toMerchantProfile } from '../lib/merchant';
 import { requireAuth } from '../middleware/auth';
@@ -46,6 +50,23 @@ merchantRouter.patch('/settings', async (req, res) => {
       data: { blocked: false },
     }),
   ]);
+
+  const body: AuthResponse = { merchant: toMerchantProfile(merchant) };
+  res.json(body);
+});
+
+merchantRouter.patch('/razorpay-account', async (req, res) => {
+  const { razorpayAccountId } = req.body as Partial<ConnectRazorpayAccountRequest>;
+
+  if (typeof razorpayAccountId !== 'string' || !razorpayAccountId.trim()) {
+    res.status(400).json({ error: 'razorpayAccountId is required' });
+    return;
+  }
+
+  const merchant = await prisma.merchant.update({
+    where: { id: req.merchantId },
+    data: { razorpayAccountId: razorpayAccountId.trim() },
+  });
 
   const body: AuthResponse = { merchant: toMerchantProfile(merchant) };
   res.json(body);
