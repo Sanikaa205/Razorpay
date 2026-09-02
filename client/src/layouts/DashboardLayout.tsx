@@ -60,6 +60,16 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="border-t border-slate-200 p-3">
+          {merchant && (
+            <a
+              href={`/store/${merchant.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              View storefront ↗
+            </a>
+          )}
           <button
             onClick={() => logout()}
             className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
