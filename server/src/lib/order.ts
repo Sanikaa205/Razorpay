@@ -11,6 +11,8 @@ export function toOrderProfile(order: Order): OrderProfile {
     status: order.status,
     razorpayOrderId: order.razorpayOrderId,
     razorpayPaymentId: order.razorpayPaymentId,
+    razorpayPaymentLinkId: order.razorpayPaymentLinkId,
+    razorpayPaymentLinkUrl: order.razorpayPaymentLinkUrl,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
   };

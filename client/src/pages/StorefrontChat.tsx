@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import type { OrderProfile, StoreAiQueryResponse } from '@ai-agent-storefront/shared';
@@ -15,8 +15,40 @@ interface ChatEntry {
   orderError?: string;
 }
 
+const TERMINAL_STATUSES: OrderProfile['status'][] = ['paid', 'failed', 'rejected'];
+const PAYABLE_STATUSES: OrderProfile['status'][] = ['auto_approved', 'merchant_approved', 'failed'];
+
 function stockStatusLabel(status: string): string {
   return status.replace(/_/g, ' ');
+}
+
+function orderStatusMessage(status: OrderProfile['status']): string {
+  switch (status) {
+    case 'auto_approved':
+      return 'Order auto-approved! Complete your payment below.';
+    case 'pending_approval':
+      return 'Order placed — pending approval from the seller.';
+    case 'merchant_approved':
+      return 'Order approved by the seller! Complete your payment below.';
+    case 'rejected':
+      return 'Order was rejected by the seller.';
+    case 'paid':
+      return 'Payment successful — your order is confirmed!';
+    case 'failed':
+      return 'Payment failed. You can try again below.';
+    default:
+      return '';
+  }
+}
+
+function orderStatusColor(status: OrderProfile['status']): string {
+  if (status === 'paid' || status === 'auto_approved' || status === 'merchant_approved') {
+    return 'text-green-700';
+  }
+  if (status === 'failed' || status === 'rejected') {
+    return 'text-red-700';
+  }
+  return 'text-amber-700';
 }
 
 export default function StorefrontChat() {
@@ -25,6 +57,42 @@ export default function StorefrontChat() {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const entriesRef = useRef<ChatEntry[]>([]);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  // Poll orders that are still awaiting a payment webhook so the buyer sees
+  // paid/failed show up automatically once Razorpay notifies the server.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const inFlight = entriesRef.current.filter(
+        (e) => e.order && !TERMINAL_STATUSES.includes(e.order.status),
+      );
+      if (inFlight.length === 0) return;
+
+      const updates = await Promise.all(
+        inFlight.map(async (e) => {
+          try {
+            const data = await apiFetch<{ order: OrderProfile }>(`/api/orders/${e.order!.id}`);
+            return { entryId: e.id, order: data.order };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setEntries((prev) =>
+        prev.map((e) => {
+          const update = updates.find((u) => u && u.entryId === e.id);
+          return update ? { ...e, order: update.order } : e;
+        }),
+      );
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -168,15 +236,22 @@ export default function StorefrontChat() {
                 <p className="mt-2 text-sm text-slate-500">Placing order...</p>
               )}
               {entry.orderState === 'placed' && entry.order && (
-                <p
-                  className={`mt-2 text-sm font-medium ${
-                    entry.order.status === 'auto_approved' ? 'text-green-700' : 'text-amber-700'
-                  }`}
-                >
-                  {entry.order.status === 'auto_approved'
-                    ? 'Order auto-approved!'
-                    : 'Order placed — pending approval from the seller.'}
-                </p>
+                <div className="mt-2 space-y-2">
+                  <p className={`text-sm font-medium ${orderStatusColor(entry.order.status)}`}>
+                    {orderStatusMessage(entry.order.status)}
+                  </p>
+                  {entry.order.razorpayPaymentLinkUrl &&
+                    PAYABLE_STATUSES.includes(entry.order.status) && (
+                      <a
+                        href={entry.order.razorpayPaymentLinkUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                      >
+                        Pay ₹{entry.order.orderValue} with Razorpay
+                      </a>
+                    )}
+                </div>
               )}
               {entry.orderState === 'declined' && (
                 <p className="mt-2 text-sm text-slate-500">

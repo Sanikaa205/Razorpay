@@ -116,6 +116,8 @@ export interface OrderProfile {
   status: OrderStatus;
   razorpayOrderId: string | null;
   razorpayPaymentId: string | null;
+  razorpayPaymentLinkId: string | null;
+  razorpayPaymentLinkUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

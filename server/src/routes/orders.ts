@@ -3,6 +3,7 @@ import type { ConfirmOrderRequest, OrderResponse } from '@ai-agent-storefront/sh
 import { prisma } from '../prisma';
 import { requireAuth } from '../middleware/auth';
 import { toOrderProfile } from '../lib/order';
+import { createPaymentForOrder } from '../lib/payment';
 
 export const ordersRouter = Router();
 
@@ -76,8 +77,22 @@ ordersRouter.post('/confirm', async (req, res) => {
     },
   });
 
-  const body: OrderResponse = { order: toOrderProfile(order) };
+  const finalOrder = status === 'auto_approved' ? await createPaymentForOrder(order.id) : order;
+
+  const body: OrderResponse = { order: toOrderProfile(finalOrder) };
   res.status(201).json(body);
+});
+
+// Public: lets the buyer's page poll for status changes (e.g. after a webhook
+// updates the order to paid/failed) without a merchant session.
+ordersRouter.get('/:id', async (req, res) => {
+  const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  const body: OrderResponse = { order: toOrderProfile(order) };
+  res.json(body);
 });
 
 // Protected: the merchant manually approving/rejecting an order pending their review.
@@ -109,7 +124,9 @@ ordersRouter.post('/:id/approve', requireAuth, async (req, res) => {
     },
   });
 
-  const body: OrderResponse = { order: toOrderProfile(updated) };
+  const finalOrder = await createPaymentForOrder(updated.id);
+
+  const body: OrderResponse = { order: toOrderProfile(finalOrder) };
   res.json(body);
 });
 
