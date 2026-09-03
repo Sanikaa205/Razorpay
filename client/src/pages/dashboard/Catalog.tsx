@@ -5,13 +5,19 @@ import { CsvUploadCard } from './catalog/CsvUploadCard';
 import { AddProductForm } from './catalog/AddProductForm';
 import { ProductTable } from './catalog/ProductTable';
 
+const POLL_INTERVAL_MS = 5000;
+
 export default function Catalog() {
   const [products, setProducts] = useState<ProductProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadProducts = useCallback(async () => {
-    setIsLoading(true);
+  // Background refresh (e.g. every few seconds, or right after an upload)
+  // never toggles the loading spinner - only the very first load does. Stock
+  // in particular can change from orders being paid elsewhere, so the table
+  // should reflect that without the merchant needing to refresh the page.
+  const loadProducts = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setIsLoading(true);
     try {
       const data = await apiFetch<ProductListResponse>('/api/products');
       setProducts(data.products);
@@ -19,12 +25,14 @@ export default function Catalog() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load products');
     } finally {
-      setIsLoading(false);
+      if (showSpinner) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadProducts();
+    loadProducts(true);
+    const interval = setInterval(() => loadProducts(false), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, [loadProducts]);
 
   async function handleUpdate(id: string, patch: UpdateProductRequest) {
@@ -43,8 +51,8 @@ export default function Catalog() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <CsvUploadCard onUploaded={loadProducts} />
-        <AddProductForm onCreated={loadProducts} />
+        <CsvUploadCard onUploaded={() => loadProducts(true)} />
+        <AddProductForm onCreated={() => loadProducts(true)} />
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-5">

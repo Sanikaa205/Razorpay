@@ -8,11 +8,9 @@ const STATUS_OPTIONS = [
   { value: 'success', label: 'AI query: success' },
   { value: 'hallucination_blocked', label: 'AI query: blocked hallucination' },
   { value: 'auto_approved', label: 'Order: auto-approved' },
-  { value: 'pending_approval', label: 'Order: pending approval' },
-  { value: 'merchant_approved', label: 'Order: merchant approved' },
-  { value: 'rejected', label: 'Order: rejected' },
   { value: 'paid', label: 'Payment: paid' },
   { value: 'failed', label: 'Payment: failed' },
+  { value: 'decremented', label: 'Stock: decreased' },
   { value: 'error', label: 'Error' },
 ];
 

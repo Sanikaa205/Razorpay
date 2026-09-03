@@ -4,6 +4,13 @@ function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+/** Short, non-identifying tag for whichever buyer/agent session this log entry belongs to, e.g. "AI Shopping Agent (session ab12cd34)". Never a real name. */
+function buyerLabel(meta: Record<string, unknown>): string {
+  const type = asString(meta.buyerType) === 'ai_agent' || !meta.buyerType ? 'AI Shopping Agent' : asString(meta.buyerType);
+  const sessionId = asString(meta.buyerSessionId);
+  return sessionId ? `${type} (session ${sessionId.slice(0, 8)})` : type;
+}
+
 /** One human-readable clause for a single audit log entry. Clauses are
  * joined with " → " to build the full story for a conversation/order. */
 export function narrateLogEntry(log: AuditLogEntry): string | null {
@@ -12,22 +19,26 @@ export function narrateLogEntry(log: AuditLogEntry): string | null {
   switch (log.step) {
     case 'store_ai_query': {
       const query = asString(meta.buyerQuery, 'something');
+      const who = buyerLabel(meta);
       if (log.outcome === 'success') {
         const productName = typeof meta.matchedProductName === 'string' ? meta.matchedProductName : null;
         return productName
-          ? `AI agent asked about "${query}" → shown ${productName}`
-          : `AI agent asked about "${query}" → no matching product found`;
+          ? `${who} asked about "${query}" → shown ${productName}`
+          : `${who} asked about "${query}" → no matching product found`;
       }
       if (log.outcome === 'hallucination_blocked') {
-        return `AI agent asked about "${query}" → blocked an unverified product match`;
+        return `${who} asked about "${query}" → blocked an unverified product match`;
       }
-      return `AI agent asked about "${query}" → Store AI request failed`;
+      return `${who} asked about "${query}" → Store AI request failed`;
     }
     case 'order_confirmation': {
       const reason = asString(meta.reason);
+      const size = typeof meta.selectedSize === 'string' ? `, size ${meta.selectedSize}` : '';
+      const quantityCount = typeof meta.quantity === 'number' && meta.quantity > 1 ? ` (x${meta.quantity})` : '';
+      const quantity = `${quantityCount}${size}`;
       return log.outcome === 'auto_approved'
-        ? `user confirmed → order auto-approved (${reason})`
-        : `user confirmed → order held for approval (${reason})`;
+        ? `buyer confirmed${quantity} → order auto-approved (${reason})`
+        : `buyer confirmed${quantity} → order held for approval (${reason})`;
     }
     case 'order_approval':
       return log.outcome === 'merchant_approved' ? 'merchant approved' : 'merchant rejected';
@@ -35,6 +46,10 @@ export function narrateLogEntry(log: AuditLogEntry): string | null {
       return log.outcome === 'paid'
         ? 'payment received via Razorpay'
         : 'payment failed via Razorpay';
+    case 'stock_updated': {
+      const qty = typeof meta.quantityDeducted === 'number' ? meta.quantityDeducted : null;
+      return qty !== null ? `stock decreased by ${qty} unit${qty === 1 ? '' : 's'}` : 'stock updated';
+    }
     default:
       return null;
   }

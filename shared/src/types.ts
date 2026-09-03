@@ -156,12 +156,15 @@ export interface OrderProfile {
   merchantId: string;
   productId: string;
   conversationId: string | null;
+  quantity: number;
+  selectedSize: string | null;
   orderValue: string;
   status: OrderStatus;
   razorpayOrderId: string | null;
   razorpayPaymentId: string | null;
   razorpayPaymentLinkId: string | null;
   razorpayPaymentLinkUrl: string | null;
+  paidAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -170,15 +173,34 @@ export interface ConfirmOrderRequest {
   conversationId: string;
   productId: string;
   userConfirmed: boolean;
+  quantity?: number;
+  /** Must be one of the product's real sizeOptions. Required whenever the product has more than one size option - a product with only "Free Size" doesn't need one. */
+  selectedSize?: string;
+  /** Second explicit confirmation from the buyer, required only when the order value exceeds the ₹1,000 customer-approval threshold. This is a customer-side check, not a merchant-review gate. */
+  highValueConfirmed?: boolean;
 }
 
 export interface OrderResponse {
   order: OrderProfile;
 }
 
+/** Returned instead of OrderResponse when the order exceeds the ₹1,000 customer-approval threshold and the buyer hasn't yet given the second explicit confirmation. No order is created until they do. */
+export interface HighValueConfirmationRequired {
+  requiresHighValueConfirmation: true;
+  orderValue: string;
+  threshold: string;
+}
+
+export type ConfirmOrderResponse = OrderResponse | HighValueConfirmationRequired;
+
 export interface OrderWithProduct extends OrderProfile {
   productName: string;
   productPhotoUrl: string;
+  productStock: number;
+  /** From the order's conversation, if any - who/what asked for this. Never a real identity. */
+  buyerSessionId: string | null;
+  buyerType: string | null;
+  buyerQuery: string | null;
 }
 
 export interface OrderListResponse {

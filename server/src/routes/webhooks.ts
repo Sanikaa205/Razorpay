@@ -66,10 +66,57 @@ webhooksRouter.post('/razorpay', async (req, res) => {
 
   const newStatus = isCaptured ? 'paid' : 'failed';
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: { status: newStatus, razorpayPaymentId: payment.id },
-  });
+  // Stock is deducted exactly once, exactly here - the only point an order
+  // has genuinely converted to money. It is never touched on order creation,
+  // approval, or while a payment is merely pending, and a failed payment
+  // never decrements it at all (nothing to "roll back" since it was never
+  // touched). `stockDeducted` guards against a retried/duplicate webhook
+  // delivery double-deducting the same order.
+  if (isCaptured && !order.stockDeducted) {
+    await prisma.$transaction([
+      prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: newStatus,
+          razorpayPaymentId: payment.id,
+          paidAt: new Date(),
+          stockDeducted: true,
+        },
+      }),
+      prisma.product.update({
+        where: { id: order.productId },
+        data: { stock: { decrement: order.quantity } },
+      }),
+    ]);
+
+    // Stock can't go negative even under a race with another concurrent
+    // order (the DB decrement above is atomic per-row, but two orders could
+    // each pass their own point-of-creation stock check moments apart) -
+    // clamp it back to zero rather than let the count read as negative.
+    const product = await prisma.product.findUnique({ where: { id: order.productId } });
+    if (product && product.stock < 0) {
+      await prisma.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        merchantId: order.merchantId,
+        orderId: order.id,
+        step: 'stock_updated',
+        outcome: 'decremented',
+        metadata: {
+          productId: order.productId,
+          quantityDeducted: order.quantity,
+          reason: 'Order payment captured',
+        },
+      },
+    });
+  } else if (!order.stockDeducted) {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: newStatus, razorpayPaymentId: payment.id },
+    });
+  }
 
   await prisma.auditLog.create({
     data: {
