@@ -52,6 +52,7 @@ model Product {
   photoUrl   String
   isAiReady  Boolean  @default(true)
   blocked    Boolean  @default(false)
+  rawData    Json?
   createdAt  DateTime @default(now())
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
@@ -67,6 +68,10 @@ model Conversation {
   buyerQuery      String
   storeAiResponse String
   actionType      ActionType
+  /// Stable per-browser-session identifier for the buyer/agent that asked this - never a real name/email, just enough to tell sessions apart in the dashboard.
+  buyerSessionId  String?
+  /// Who's on the other end of this conversation. Currently always "ai_agent" (the storefront's only entry point is the Simulated AI Buyer), kept as a real field rather than hardcoded copy so a genuine human-checkout channel could be added later without a schema change.
+  buyerType       String     @default("ai_agent")
   createdAt       DateTime   @default(now())
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
@@ -81,12 +86,18 @@ model Order {
   merchantId       String
   productId        String
   conversationId   String?
+  quantity         Int         @default(1)
+  /// The size the buyer chose from the product's real sizeOptions at order time - never invented, always one of that product's actual options.
+  selectedSize     String?
   orderValue       Decimal     @db.Decimal(10, 2)
   status           OrderStatus @default(pending_approval)
+  /// True once this order's stock has actually been deducted from Product.stock - happens exactly once, only when the order reaches `paid`, so a retried/duplicate webhook can never double-deduct.
+  stockDeducted    Boolean     @default(false)
   razorpayOrderId  String?
   razorpayPaymentId String?
   razorpayPaymentLinkId  String?
   razorpayPaymentLinkUrl String?
+  paidAt           DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -103,15 +114,15 @@ model Order {
 
 model AuditLog {
   id         String   @id @default(uuid())
-  merchantId String
+  merchantId String?
   orderId    String?
   step       String
   outcome    String
   metadata   Json?
   timestamp  DateTime @default(now())
 
-  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([merchantId])
   @@index([orderId])
