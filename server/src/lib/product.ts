@@ -14,6 +14,7 @@ export function toProductProfile(product: Product): ProductProfile {
     photoUrl: product.photoUrl,
     isAiReady: product.isAiReady,
     blocked: product.blocked,
+    rawData: (product.rawData as Record<string, unknown> | null) ?? null,
     createdAt: product.createdAt.toISOString(),
   };
 }

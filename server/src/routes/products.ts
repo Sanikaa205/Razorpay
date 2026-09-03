@@ -1,9 +1,10 @@
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { parse } from 'csv-parse/sync';
 import { Router } from 'express';
 import multer from 'multer';
 import type {
+  CsvConfirmRequest,
+  CsvPreviewResponse,
   CsvUploadResponse,
   ProductListResponse,
   ProductResponse,
@@ -13,6 +14,8 @@ import { prisma } from '../prisma';
 import { requireAuth } from '../middleware/auth';
 import { UPLOADS_DIR } from '../lib/uploads';
 import { parseSizeOptions, placeholderPhotoUrl, toProductProfile } from '../lib/product';
+import { mapColumns } from '../lib/csvColumnMapping';
+import { parseSpreadsheet, transformRow } from '../lib/csvTransform';
 
 export const productsRouter = Router();
 
@@ -20,7 +23,7 @@ productsRouter.use(requireAuth);
 
 const csvUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 const imageUpload = multer({
@@ -38,16 +41,6 @@ const imageUpload = multer({
   },
 });
 
-interface CsvRow {
-  name?: string;
-  price?: string;
-  material?: string;
-  color?: string;
-  size?: string;
-  stock?: string;
-  photo_url?: string;
-}
-
 productsRouter.get('/', async (req, res) => {
   const products = await prisma.product.findMany({
     where: { merchantId: req.merchantId },
@@ -58,21 +51,57 @@ productsRouter.get('/', async (req, res) => {
   res.json(body);
 });
 
-productsRouter.post('/upload-csv', csvUpload.single('file'), async (req, res) => {
+/**
+ * Phase 1 of the messy-CSV pipeline: parses any CSV/Excel file (arbitrary
+ * column names/order), auto-maps its columns onto our schema, and returns a
+ * per-row before/after transformation preview. Nothing is saved yet — the
+ * merchant reviews this in the UI and explicitly confirms via /upload-csv/confirm.
+ */
+productsRouter.post('/upload-csv/preview', csvUpload.single('file'), async (req, res) => {
   if (!req.file) {
-    res.status(400).json({ error: 'CSV file is required (field name: file)' });
+    res.status(400).json({ error: 'A CSV or Excel file is required (field name: file)' });
     return;
   }
 
-  let records: CsvRow[];
+  let parsed;
   try {
-    records = parse(req.file.buffer.toString('utf-8'), {
-      columns: true,
-      trim: true,
-      skip_empty_lines: true,
-    });
+    parsed = parseSpreadsheet(req.file.buffer, req.file.originalname);
   } catch {
-    res.status(400).json({ error: 'Could not parse CSV file' });
+    res.status(400).json({ error: 'Could not parse this file. Please upload a valid CSV or Excel file.' });
+    return;
+  }
+
+  if (parsed.rows.length === 0) {
+    res.status(400).json({ error: 'No data rows were found in this file.' });
+    return;
+  }
+
+  const merchantId = req.merchantId!;
+  const { mapping, source } = await mapColumns(parsed.headers);
+
+  const rows = parsed.rows.map((row, index) =>
+    transformRow(row, mapping, index + 2, `${merchantId}-preview-${index}-${Date.now()}`),
+  );
+
+  const body: CsvPreviewResponse = {
+    detectedColumns: parsed.headers,
+    columnMapping: mapping,
+    mappingSource: source,
+    rows,
+  };
+  res.json(body);
+});
+
+/**
+ * Phase 2: the merchant has reviewed the before/after preview and confirmed.
+ * Saves the already-transformed rows (each still paired with its original
+ * raw row, persisted as Product.rawData for traceability), skipping any row
+ * the preview marked invalid (missing name/price it couldn't recover).
+ */
+productsRouter.post('/upload-csv/confirm', async (req, res) => {
+  const { rows } = req.body as Partial<CsvConfirmRequest>;
+  if (!Array.isArray(rows)) {
+    res.status(400).json({ error: 'rows is required' });
     return;
   }
 
@@ -89,24 +118,20 @@ productsRouter.post('/upload-csv', csvUpload.single('file'), async (req, res) =>
     photoUrl: string;
     isAiReady: true;
     blocked: false;
+    rawData: Record<string, string>;
   }> = [];
 
-  records.forEach((row, index) => {
-    const rowNumber = index + 2; // header is row 1
-    const name = row.name?.trim();
-    const price = Number(row.price);
-    const stock = row.stock ? Number(row.stock) : 0;
+  rows.forEach(({ raw, transformed }, index) => {
+    const rowNumber = index + 2;
+    const name = transformed?.name?.trim();
+    const price = transformed?.price;
 
     if (!name) {
       errors.push({ row: rowNumber, message: 'Missing product name' });
       return;
     }
-    if (!Number.isFinite(price) || price <= 0) {
-      errors.push({ row: rowNumber, message: `Invalid price "${row.price ?? ''}"` });
-      return;
-    }
-    if (!Number.isFinite(stock) || stock < 0) {
-      errors.push({ row: rowNumber, message: `Invalid stock "${row.stock ?? ''}"` });
+    if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+      errors.push({ row: rowNumber, message: 'Missing or invalid price' });
       return;
     }
 
@@ -114,13 +139,14 @@ productsRouter.post('/upload-csv', csvUpload.single('file'), async (req, res) =>
       merchantId,
       name,
       price,
-      material: row.material?.trim() ?? '',
-      color: row.color?.trim() ?? '',
-      sizeOptions: parseSizeOptions(row.size),
-      stock,
-      photoUrl: row.photo_url?.trim() || placeholderPhotoUrl(`${merchantId}-${name}-${index}`),
+      material: transformed.material?.trim() ?? '',
+      color: transformed.color?.trim() ?? '',
+      sizeOptions: parseSizeOptions(transformed.sizeOptions?.join(',')),
+      stock: Number.isFinite(transformed.stock) ? transformed.stock : 0,
+      photoUrl: transformed.photoUrl?.trim() || placeholderPhotoUrl(`${merchantId}-${name}-${index}`),
       isAiReady: true,
       blocked: false,
+      rawData: raw ?? {},
     });
   });
 

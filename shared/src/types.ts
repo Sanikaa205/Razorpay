@@ -40,6 +40,7 @@ export interface ProductProfile {
   photoUrl: string;
   isAiReady: boolean;
   blocked: boolean;
+  rawData: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -66,6 +67,47 @@ export interface CsvUploadResponse {
   created: number;
   skipped: number;
   errors: CsvUploadRowError[];
+}
+
+/** Canonical catalog fields the upload pipeline maps arbitrary spreadsheet columns onto. */
+export type CatalogField = 'name' | 'price' | 'material' | 'color' | 'sizeOptions' | 'stock' | 'photoUrl';
+
+/** Which source column (if any) was detected for each canonical field, plus how confident the mapper was. */
+export type CsvColumnMapping = Partial<Record<CatalogField, { sourceColumn: string; confidence: number }>>;
+
+export interface CsvFieldFlag {
+  field: CatalogField | 'row';
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+}
+
+export interface TransformedProductFields {
+  name: string;
+  price: number | null;
+  material: string;
+  color: string;
+  sizeOptions: string[];
+  stock: number;
+  photoUrl: string;
+}
+
+export interface CsvPreviewRow {
+  rowNumber: number;
+  raw: Record<string, string>;
+  transformed: TransformedProductFields;
+  flags: CsvFieldFlag[];
+  valid: boolean;
+}
+
+export interface CsvPreviewResponse {
+  detectedColumns: string[];
+  columnMapping: CsvColumnMapping;
+  mappingSource: 'llm' | 'rule_based';
+  rows: CsvPreviewRow[];
+}
+
+export interface CsvConfirmRequest {
+  rows: Array<{ raw: Record<string, string>; transformed: TransformedProductFields }>;
 }
 
 export type ActionType = 'info_only' | 'order_attempt' | 'out_of_stock';
@@ -149,7 +191,7 @@ export interface MerchantSettingsRequest {
 
 export interface AuditLogEntry {
   id: string;
-  merchantId: string;
+  merchantId: string | null;
   orderId: string | null;
   conversationId: string | null;
   step: string;
