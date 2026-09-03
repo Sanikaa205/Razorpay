@@ -22,23 +22,14 @@ merchantRouter.get('/me', async (req, res) => {
 });
 
 merchantRouter.patch('/settings', async (req, res) => {
-  const { autoApproveLimit, requireManualApproval, blockedProductIds } =
-    req.body as Partial<MerchantSettingsRequest>;
-
-  if (typeof autoApproveLimit !== 'number' || !Number.isFinite(autoApproveLimit) || autoApproveLimit < 0) {
-    res.status(400).json({ error: 'autoApproveLimit must be a non-negative number' });
-    return;
-  }
-  if (typeof requireManualApproval !== 'boolean') {
-    res.status(400).json({ error: 'requireManualApproval must be a boolean' });
-    return;
-  }
+  const { blockedProductIds } = req.body as Partial<MerchantSettingsRequest>;
   const blockedIds = Array.isArray(blockedProductIds) ? blockedProductIds : [];
 
-  const merchant = await prisma.merchant.update({
-    where: { id: req.merchantId },
-    data: { autoApproveLimit, requireManualApproval },
-  });
+  const merchant = await prisma.merchant.findUnique({ where: { id: req.merchantId } });
+  if (!merchant) {
+    res.status(404).json({ error: 'Merchant not found' });
+    return;
+  }
 
   await prisma.$transaction([
     prisma.product.updateMany({

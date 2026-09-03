@@ -53,6 +53,54 @@ function EditableNumberCell({
   );
 }
 
+function BlockedToggle({
+  blocked,
+  onToggle,
+}: {
+  blocked: boolean;
+  onToggle: (nextBlocked: boolean) => Promise<void>;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleClick() {
+    setIsSaving(true);
+    try {
+      await onToggle(!blocked);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={!blocked}
+        disabled={isSaving}
+        onClick={handleClick}
+        title={blocked ? 'Blocked — click to make sellable again' : 'Sellable — click to block'}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+          blocked ? 'bg-slate-300' : 'bg-green-500'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            blocked ? 'translate-x-0.5' : 'translate-x-[22px]'
+          }`}
+        />
+      </button>
+      <span
+        className={`rounded-full px-2 py-1 text-xs font-medium ${
+          blocked ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-800'
+        }`}
+      >
+        {blocked ? 'Blocked' : 'Sellable'}
+      </span>
+    </div>
+  );
+}
+
 export function ProductTable({
   products,
   onUpdate,
@@ -66,14 +114,14 @@ export function ProductTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-sm">
+      <table className="w-full min-w-[720px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left text-slate-500">
             <th className="py-2 pr-4 font-medium">Photo</th>
             <th className="py-2 pr-4 font-medium">Name</th>
             <th className="py-2 pr-4 font-medium">Price</th>
             <th className="py-2 pr-4 font-medium">Stock</th>
-            <th className="py-2 pr-4 font-medium">AI Ready</th>
+            <th className="py-2 pr-4 font-medium">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -104,15 +152,10 @@ export function ProductTable({
                 />
               </td>
               <td className="py-2 pr-4">
-                <span
-                  className={`rounded-full px-2 py-1 text-xs font-medium ${
-                    product.isAiReady
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {product.isAiReady ? 'AI Ready' : 'Not Ready'}
-                </span>
+                <BlockedToggle
+                  blocked={product.blocked}
+                  onToggle={(nextBlocked) => onUpdate(product.id, { blocked: nextBlocked })}
+                />
               </td>
             </tr>
           ))}
