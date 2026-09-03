@@ -3,11 +3,16 @@ import { getRazorpayClient } from './razorpay';
 import type { Order } from '@prisma/client';
 
 /**
- * Creates the Razorpay order + payment link for an already-approved Order and
- * persists the resulting ids/URL. Never throws - a Razorpay API failure is
- * logged to AuditLog and the Order is returned unchanged, so an approval
- * decision (auto or manual) is never rolled back just because the payment
- * provider call failed; the merchant can retry payment creation separately.
+ * Creates the Razorpay order for an already-approved Order and persists the
+ * resulting id. Never throws - a Razorpay API failure is logged to AuditLog
+ * and the Order is returned unchanged, so an approval decision (auto or
+ * manual) is never rolled back just because the payment provider call
+ * failed; the merchant can retry payment creation separately.
+ *
+ * This only creates a Razorpay Order, not a Payment Link - the buyer pays
+ * via Razorpay's embedded Checkout widget client-side (using this order id
+ * directly), which isn't subject to test mode's separate, much lower daily
+ * limit on Payment Link creation.
  */
 export async function createPaymentForOrder(orderId: string): Promise<Order> {
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
@@ -28,26 +33,10 @@ export async function createPaymentForOrder(orderId: string): Promise<Order> {
       notes: { orderId: order.id, merchantId: merchant.id, productId: product.id },
     });
 
-    const paymentLink = await client.paymentLink.create({
-      amount: amountPaise,
-      currency: 'INR',
-      description: `${product.name} - ${merchant.name}`,
-      reference_id: order.id,
-      customer: {
-        name: 'Storefront Buyer',
-        email: 'buyer@example.com',
-        contact: '9999999999',
-      },
-      notify: { sms: false, email: false },
-      notes: { orderId: order.id },
-    });
-
     const updated = await prisma.order.update({
       where: { id: order.id },
       data: {
         razorpayOrderId: razorpayOrder.id,
-        razorpayPaymentLinkId: paymentLink.id,
-        razorpayPaymentLinkUrl: paymentLink.short_url,
       },
     });
 
@@ -59,7 +48,6 @@ export async function createPaymentForOrder(orderId: string): Promise<Order> {
         outcome: 'success',
         metadata: {
           razorpayOrderId: razorpayOrder.id,
-          paymentLinkId: paymentLink.id,
           amountPaise,
         },
       },
@@ -73,7 +61,19 @@ export async function createPaymentForOrder(orderId: string): Promise<Order> {
         orderId: order.id,
         step: 'payment_created',
         outcome: 'error',
-        metadata: { error: err instanceof Error ? err.message : String(err), amountPaise },
+        metadata: {
+          error:
+            err instanceof Error
+              ? err.message
+              : (() => {
+                  try {
+                    return JSON.stringify(err);
+                  } catch {
+                    return String(err);
+                  }
+                })(),
+          amountPaise,
+        },
       },
     });
     return order;
