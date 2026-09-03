@@ -44,7 +44,7 @@ const imageUpload = multer({
 productsRouter.get('/', async (req, res) => {
   const products = await prisma.product.findMany({
     where: { merchantId: req.merchantId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
   });
 
   const body: ProductListResponse = { products: products.map(toProductProfile) };

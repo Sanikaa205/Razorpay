@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ProductProfile, UpdateProductRequest } from '@ai-agent-storefront/shared';
-import { resolveAssetUrl } from '../../../api/client';
+import { ProductImage } from '../../../components/ProductImage';
 
 function EditableNumberCell({
   value,
@@ -80,11 +80,7 @@ export function ProductTable({
           {products.map((product) => (
             <tr key={product.id} className="border-b border-slate-100">
               <td className="py-2 pr-4">
-                <img
-                  src={resolveAssetUrl(product.photoUrl)}
-                  alt={product.name}
-                  className="h-14 w-11 rounded object-cover"
-                />
+                <ProductImage src={product.photoUrl} alt={product.name} className="h-14 w-11 rounded" />
               </td>
               <td className="py-2 pr-4">
                 <p className="font-medium text-slate-900">{product.name}</p>
