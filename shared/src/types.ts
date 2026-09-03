@@ -123,11 +123,13 @@ export interface StoreAiMatchedProduct {
   color: string;
   size_options: string[];
   stock_status: StockStatus;
+  stock: number;
 }
 
 export interface StoreAiQueryRequest {
   merchantId: string;
   buyerQuery: string;
+  buyerSessionId?: string;
 }
 
 export interface StoreAiAnswer {

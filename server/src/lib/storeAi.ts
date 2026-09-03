@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { Merchant, Product } from '@prisma/client';
 import type {
   ActionType,
@@ -6,18 +5,8 @@ import type {
   StoreAiMatchedProduct,
   StoreAiAnswer,
 } from '@ai-agent-storefront/shared';
-
-const MODEL_ID = 'claude-opus-5';
-const RESPONSE_TOOL_NAME = 'emit_store_response';
-
-let client: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!client) {
-    client = new Anthropic();
-  }
-  return client;
-}
+import { getKeywordMatchResponse } from './keywordMatch';
+import { generateGeminiContent } from './geminiClient';
 
 export function stockStatus(stock: number): StockStatus {
   if (stock <= 0) return 'out_of_stock';
@@ -57,68 +46,53 @@ function buildSystemPrompt(merchant: Merchant, catalog: CatalogEntry[]): string 
     'Rules:',
     '- Only recommend products that exist in this exact list. Never invent products, prices, sizes, or stock.',
     '- If there is no exact match for what the buyer asked for, pick the closest real alternative from CATALOG and set is_alternative to true; your message must explicitly say it is an alternative.',
+    '- Never treat a product of a different garment type as an alternative or a match, even if its color/material match well (e.g. if the buyer asks for a saree and CATALOG has no sarees, do not suggest a kurta just because the color matches). If CATALOG has no item of the same garment type the buyer asked for, set matched_product to null.',
     '- If nothing in CATALOG is even a reasonable alternative, set matched_product to null and is_alternative to false.',
-    '- Set action_type to "order_attempt" when the buyer is trying to buy/order a specific product and you found a real match that is in_stock or low_stock.',
+    '- This is a shopping agent, not a general catalog browser: treat any query that names or describes a specific product (even a bare phrase with no explicit "buy"/"order" wording) as an attempt to order it. Set action_type to "order_attempt" whenever you found a real match (exact or alternative) that is in_stock or low_stock.',
     '- Set action_type to "out_of_stock" when the buyer wants something matching a real catalog item whose stock_status is "out_of_stock".',
-    '- Set action_type to "info_only" for browsing, general questions, or when there is no usable match at all.',
+    '- Set action_type to "info_only" only for genuine browsing/general questions (e.g. "what do you sell?") or when there is no usable match at all (matched_product is null).',
     '- Every field you fill in for matched_product (id, name, price, photo_url, material, color, size_options, stock_status) must come verbatim from a single CATALOG entry with that id - never mix fields from different products and never make any up. photo_url is not present in CATALOG; leave it as an empty string, it will be filled in server-side.',
-    '- Call the emit_store_response tool exactly once with your answer.',
+    '- Respond with a single JSON object matching the required response schema exactly. Do not include any text outside the JSON.',
     '',
     'CATALOG:',
     JSON.stringify(catalog),
   ].join('\n');
 }
 
-const RESPONSE_TOOL: Anthropic.Tool = {
-  name: RESPONSE_TOOL_NAME,
-  description:
-    "Return the structured answer for the buyer's query, grounded strictly in the CATALOG provided in the system prompt.",
-  input_schema: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['action_type', 'matched_product', 'is_alternative', 'message'],
-    properties: {
-      action_type: {
-        type: 'string',
-        enum: ['info_only', 'order_attempt', 'out_of_stock'],
-      },
-      matched_product: {
-        anyOf: [
-          {
-            type: 'object',
-            additionalProperties: false,
-            required: [
-              'id',
-              'name',
-              'price',
-              'photo_url',
-              'material',
-              'color',
-              'size_options',
-              'stock_status',
-            ],
-            properties: {
-              id: { type: 'string' },
-              name: { type: 'string' },
-              price: { type: 'number' },
-              photo_url: { type: 'string' },
-              material: { type: 'string' },
-              color: { type: 'string' },
-              size_options: { type: 'array', items: { type: 'string' } },
-              stock_status: {
-                type: 'string',
-                enum: ['in_stock', 'low_stock', 'out_of_stock'],
-              },
-            },
-          },
-          { type: 'null' },
-        ],
-      },
-      is_alternative: { type: 'boolean' },
-      message: { type: 'string' },
+/**
+ * Gemini's structured-output schema is a constrained subset of OpenAPI 3.0 -
+ * no `anyOf`/`additionalProperties`, but `nullable` on a typed property is
+ * supported, which is how matched_product's "no match" case is expressed.
+ */
+const GEMINI_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  required: ['action_type', 'matched_product', 'is_alternative', 'message'],
+  properties: {
+    action_type: {
+      type: 'STRING',
+      enum: ['info_only', 'order_attempt', 'out_of_stock'],
     },
+    matched_product: {
+      type: 'OBJECT',
+      nullable: true,
+      required: ['id', 'name', 'price', 'photo_url', 'material', 'color', 'size_options', 'stock_status'],
+      properties: {
+        id: { type: 'STRING' },
+        name: { type: 'STRING' },
+        price: { type: 'NUMBER' },
+        photo_url: { type: 'STRING' },
+        material: { type: 'STRING' },
+        color: { type: 'STRING' },
+        size_options: { type: 'ARRAY', items: { type: 'STRING' } },
+        stock_status: {
+          type: 'STRING',
+          enum: ['in_stock', 'low_stock', 'out_of_stock'],
+        },
+      },
+    },
+    is_alternative: { type: 'BOOLEAN' },
+    message: { type: 'STRING' },
   },
-  strict: true,
 };
 
 interface RawToolOutput {
@@ -156,6 +130,7 @@ export function reconcileWithCatalog(raw: RawToolOutput, products: Product[]): S
         color: realProduct.color,
         size_options: realProduct.sizeOptions,
         stock_status: stockStatus(realProduct.stock),
+        stock: realProduct.stock,
       };
     } else {
       hallucinationBlocked = true;
@@ -186,33 +161,30 @@ export async function getStoreAiResponse(params: {
   buyerQuery: string;
 }): Promise<StoreAiOutcome> {
   const { merchant, products, buyerQuery } = params;
+
+  if (!process.env.GEMINI_API_KEY) {
+    return reconcileWithCatalog(getKeywordMatchResponse({ merchant, products, buyerQuery }), products);
+  }
+
   const catalog = products.map(toCatalogEntry);
   const system = buildSystemPrompt(merchant, catalog);
 
-  const response = await getClient().messages.create({
-    model: MODEL_ID,
-    max_tokens: 2000,
-    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-    tools: [RESPONSE_TOOL],
-    tool_choice: { type: 'tool', name: RESPONSE_TOOL_NAME },
-    messages: [{ role: 'user', content: buyerQuery }],
-  });
-
-  const toolUse = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use',
-  );
-
-  if (!toolUse) {
-    return {
-      result: {
-        action_type: 'info_only',
-        matched_product: null,
-        is_alternative: false,
-        message: "Sorry, I couldn't process that request right now. Please try again.",
-      },
-      hallucinationBlocked: false,
-    };
+  // Gemini's free-tier quota and latency are both genuinely inconsistent in
+  // practice (observed: rate limits, connection resets on slow "thinking"
+  // responses). None of that should ever surface as a hard failure to a
+  // buyer - fall back to the deterministic keyword matcher on any failure
+  // here, exactly as if the key had never been configured.
+  try {
+    const text = await generateGeminiContent({
+      systemInstruction: system,
+      userText: buyerQuery,
+      responseSchema: GEMINI_RESPONSE_SCHEMA,
+    });
+    if (!text) throw new Error('Gemini returned an empty response');
+    const parsed = JSON.parse(text) as RawToolOutput;
+    return reconcileWithCatalog(parsed, products);
+  } catch (err) {
+    console.error('Gemini Store AI call failed, falling back to keyword matcher:', err);
+    return reconcileWithCatalog(getKeywordMatchResponse({ merchant, products, buyerQuery }), products);
   }
-
-  return reconcileWithCatalog(toolUse.input as RawToolOutput, products);
 }

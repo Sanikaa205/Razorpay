@@ -6,7 +6,7 @@ import { getStoreAiResponse } from '../lib/storeAi';
 export const storeAiRouter = Router();
 
 storeAiRouter.post('/query', async (req, res) => {
-  const { merchantId, buyerQuery } = req.body as Partial<StoreAiQueryRequest>;
+  const { merchantId, buyerQuery, buyerSessionId } = req.body as Partial<StoreAiQueryRequest>;
 
   if (!merchantId || !buyerQuery?.trim()) {
     res.status(400).json({ error: 'merchantId and buyerQuery are required' });
@@ -47,6 +47,7 @@ storeAiRouter.post('/query', async (req, res) => {
       buyerQuery,
       storeAiResponse: JSON.stringify(result),
       actionType: result.action_type,
+      buyerSessionId: typeof buyerSessionId === 'string' ? buyerSessionId : null,
     },
   });
 
@@ -62,6 +63,8 @@ storeAiRouter.post('/query', async (req, res) => {
         matchedProductId: result.matched_product?.id ?? null,
         matchedProductName: result.matched_product?.name ?? null,
         isAlternative: result.is_alternative,
+        buyerSessionId: typeof buyerSessionId === 'string' ? buyerSessionId : null,
+        buyerType: 'ai_agent',
       },
     },
   });
