@@ -4,12 +4,9 @@ import { useAuth } from '../context/useAuth';
 const NAV_ITEMS = [
   { to: '/dashboard/onboarding', label: 'Onboarding' },
   { to: '/dashboard/catalog', label: 'Catalog' },
-  { to: '/dashboard/safety-settings', label: 'Safety Settings' },
   { to: '/dashboard/orders', label: 'Live Orders & Audit Trail' },
   { to: '/dashboard/payments', label: 'Payments' },
 ];
-
-const INTERNAL_NAV_ITEMS = [{ to: '/dashboard/store-ai-test', label: 'Store AI Test' }];
 
 export default function DashboardLayout() {
   const { merchant, logout } = useAuth();
@@ -24,25 +21,6 @@ export default function DashboardLayout() {
 
         <nav className="flex-1 space-y-1 px-3 py-4">
           {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `block rounded-md px-3 py-2 text-sm font-medium ${
-                  isActive
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-
-          <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Internal
-          </p>
-          {INTERNAL_NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
