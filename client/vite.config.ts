@@ -6,4 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  optimizeDeps: {
+    // The shared workspace package ships CommonJS output; Vite doesn't
+    // pre-bundle symlinked monorepo packages by default, so without this its
+    // named exports (e.g. detectGarmentType) fail to resolve as ESM imports.
+    include: ['@ai-agent-storefront/shared'],
+  },
 });

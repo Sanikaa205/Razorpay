@@ -209,3 +209,20 @@ export interface AuditLogListResponse {
 export interface ConnectRazorpayAccountRequest {
   razorpayAccountId: string;
 }
+
+export interface MerchantDirectoryEntry {
+  merchantId: string;
+  storeName: string;
+  categories: string[];
+  priceRange: { min: number; max: number };
+  productCount: number;
+}
+
+export interface DirectoryResponse {
+  merchants: MerchantDirectoryEntry[];
+  /** The single best match the backend picked for the buyer, or null if nothing matched. */
+  picked: MerchantDirectoryEntry | null;
+  /** One-line human-readable reason `picked` was chosen over other candidates, e.g. "most matching products". */
+  pickedReason: string | null;
+  totalCandidates: number;
+}

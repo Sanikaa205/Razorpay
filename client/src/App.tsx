@@ -15,6 +15,7 @@ function App() {
       <Route path="/" element={<Navigate to="/dashboard/onboarding" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/store" element={<StorefrontChat />} />
       <Route path="/store/:merchantId" element={<StorefrontChat />} />
 
       <Route element={<ProtectedRoute />}>

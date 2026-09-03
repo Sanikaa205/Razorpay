@@ -76,6 +76,13 @@ export default function Login() {
             Sign up
           </Link>
         </p>
+
+        <p className="mt-2 text-center text-sm text-slate-500">
+          Shopping instead?{' '}
+          <Link to="/store" className="font-medium text-slate-900 underline">
+            Try the AI Shopping Assistant
+          </Link>
+        </p>
       </form>
     </div>
   );
