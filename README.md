@@ -16,99 +16,163 @@ moment a payment actually clears.
 
 ## What's implemented
 
-### Merchant accounts & onboarding
-- Email/password signup and login (`POST /api/auth/signup`, `/login`), JWT stored in an
-  httpOnly cookie, session lookup via `GET /api/auth/me`.
-- An Onboarding page walks a merchant through: account created → connect a
-  Razorpay account reference (`PATCH /api/merchant/razorpay-account`) → upload
-  a catalog. It shows a shareable storefront link (`/store/:merchantId`) once
-  products exist.
+### Authentication
+- Email/password signup and login (`POST /api/auth/signup`, `POST /api/auth/login`),
+  passwords hashed with bcrypt, session issued as a JWT in an httpOnly cookie
+  (`POST /api/auth/logout` clears it, `GET /api/auth/me` reads the current session).
+- All merchant-only routes (`/api/merchant`, `/api/products`, `/api/orders` list
+  endpoint, `/api/audit-logs`) are gated by a `requireAuth` middleware that reads
+  this cookie; a merchant can only ever see or modify their own data
+  (`merchantId` always comes from the session, never a request parameter).
+- No password reset, email verification, or role/permission system beyond a
+  single "merchant" account type.
 
-### Catalog management
+### Catalog upload & CSV/Excel transformation
 - Add a product manually, with an optional uploaded photo file or an image
   URL (`POST /api/products`, multipart).
 - Edit price, stock, and a blocked/sellable toggle per product directly in
-  the Catalog table (`PATCH /api/products/:id`); the catalog table polls
-  every 5s so stock changes from live orders show up automatically.
+  the Catalog table (`PATCH /api/products/:id`); the table polls every 5s so
+  stock changes from live orders show up automatically.
 - **Bulk upload via CSV or Excel (.csv/.xlsx/.xls) with arbitrary column
-  names.** This is a two-phase flow:
-  1. `POST /api/products/upload-csv/preview` parses the file, auto-maps
+  names**, as a two-phase preview/confirm flow:
+  1. `POST /api/products/upload-csv/preview` parses the file and auto-maps
      whatever columns it finds onto the catalog schema (name, price,
-     material, color, sizes, stock, photo) using either an Anthropic
-     (Claude) tool-call mapper when `ANTHROPIC_API_KEY` is set, or a
-     dependency-free rule-based synonym/fuzzy matcher otherwise, cleans and
-     infers values (parses "₹1,499"/"Rs. 899" style prices, infers
-     material/color from the product name when no column exists, defaults
-     missing sizes to "Free Size"), and returns a per-row before/after
-     preview with any warnings/errors — nothing is saved yet.
+     material, color, sizes, stock, photo) — using an Anthropic (Claude)
+     tool-call mapper when `ANTHROPIC_API_KEY` is set, or a dependency-free
+     rule-based synonym/fuzzy-match mapper otherwise. It then cleans and
+     infers values: parses "₹1,499" / "Rs. 899" style prices, infers a
+     missing material/color from the product name against a built-in
+     dictionary, defaults missing sizes to "Free Size", and flags rows it
+     couldn't confidently transform. Returns a per-row before/after preview
+     with those flags — nothing is saved yet.
   2. The merchant reviews the preview in the UI and confirms
-     (`POST /api/products/upload-csv/confirm`), which saves only the valid
-     rows, each with its original raw row preserved as `Product.rawData`
-     for traceability.
-- Product photos render through a component that shows a loading skeleton
-  and falls back to an inline placeholder graphic if the URL is missing,
-  malformed, or fails to load — so a bad merchant-supplied image link never
-  shows a broken-image icon.
+     (`POST /api/products/upload-csv/confirm`), which saves only the rows
+     marked valid (a missing name or price marks a row invalid), each with
+     its original raw row preserved as `Product.rawData` for traceability.
+- Product photos render through a component with a loading skeleton and a
+  guaranteed inline-SVG fallback if the URL is missing, malformed, or fails
+  to load, so a bad merchant-supplied image link never shows as broken.
 
-### AI shopping agent (Store AI)
+### Store AI matching
 - `POST /api/store-ai/query` answers a buyer's free-text query strictly from
-  that merchant's real, non-blocked catalog.
-- Uses Google Gemini (`GEMINI_API_KEY`, structured JSON output) when
-  configured; otherwise — and on any Gemini failure (rate limit, timeout,
-  bad response) — falls back transparently to a deterministic keyword/
-  token-overlap matcher that also gates by garment category and an "under
-  ₹X" price ceiling parsed from the query, so it never suggests the wrong
-  type of product.
+  that merchant's real, non-blocked, AI-ready catalog.
+- Uses Google Gemini (`GEMINI_API_KEY`, constrained structured JSON output)
+  when configured; otherwise — and on any Gemini failure (rate limit,
+  timeout, bad response) — falls back transparently to a deterministic
+  keyword/token-overlap matcher that also gates by garment category
+  (e.g. never suggests a kurta for a saree query) and an "under ₹X" price
+  ceiling parsed from the query text.
 - Every response is reconciled against the real database record for the
   matched product id: price, stock, sizes, etc. are always rebuilt
-  server-side, so a hallucinated field can never reach the buyer. If the
-  model names a product id that doesn't exist in the catalog, the match is
-  discarded and logged as a blocked hallucination.
+  server-side from that record, never taken from the model's output, so a
+  hallucinated field can never reach the buyer. If the model names a
+  product id that doesn't exist in the catalog, the match is discarded and
+  the event is logged as a blocked hallucination.
+- `GET /api/directory` additionally lets a buyer/agent discover an AI-ready
+  merchant without already knowing a `merchantId` — optionally filtered by
+  garment category and a max budget — picking the single best candidate
+  (most matching products, tie-broken by lowest price). The generic
+  `/store` route runs this discovery step before handing off to that
+  merchant's Store AI.
 - Every query is stored as a `Conversation` (with an optional buyer session
   id) and logged to the audit trail.
 
-### Multi-merchant discovery
-- `GET /api/directory` lets a buyer/agent find an AI-ready merchant without
-  already knowing a `merchantId` — optionally filtered by garment category
-  and a max budget — and picks the single best candidate (most matching
-  products, tie-broken by lowest price), with a one-line reason. Logged to
-  the audit trail as a `merchant_discovery` step.
-- The generic `/store` route (no merchant id) runs this discovery step
-  first, then hands off to that merchant's own Store AI.
-
-### Buyer checkout flow
+### Customer/buyer flow
 - The `/store/:merchantId` (or generic `/store`) chat page lets a buyer ask
-  about products, pick a size (when the matched product has more than one)
-  and quantity (capped at real stock), and confirm an order
+  about products in natural language, see the matched product with real
+  stock/price/sizes, pick a size (when the product has more than one
+  option) and a quantity (capped at real stock), and confirm an order
   (`POST /api/orders/confirm`).
-- Orders at or under a fixed ₹1,000 threshold go straight to payment; orders
-  above it require a second explicit confirmation from the buyer first
-  (`highValueConfirmed`) before an order row is even created.
-- Payment is collected via Razorpay's embedded Checkout widget: the server
-  creates a Razorpay Order (`POST` via the Razorpay SDK) and the browser
-  opens Checkout against it directly — no Payment Link involved.
-- `POST /api/webhooks/razorpay` verifies the webhook's HMAC signature and is
-  the sole source of truth for payment status: on `payment.captured` it
-  marks the order `paid`, stamps `paidAt`, and decrements the product's
-  stock exactly once (guarded against duplicate webhook delivery); on
-  `payment.failed` it marks the order `failed` without touching stock.
-- The buyer page polls `GET /api/orders/:id` to reflect the webhook-driven
-  status change without a page refresh.
+- A buyer session id (a random id persisted in `sessionStorage`, not a real
+  identity) is sent with every query and order so the merchant dashboard can
+  tell separate sessions apart.
+- Out-of-stock products cannot be ordered; the order-confirm endpoint also
+  independently re-checks stock server-side before creating an order.
 
-### Merchant dashboard
-- **Payments** page: live-polled list of every order (product, size, qty,
+### Order approval rules
+- There is **no merchant manual-approval step** in the current code path:
+  every confirmed order is created with status `auto_approved` and goes
+  straight to payment creation. The `Merchant.autoApproveLimit` and
+  `Merchant.requireManualApproval` database columns and the
+  `pending_approval` / `merchant_approved` / `rejected` order statuses still
+  exist in the schema, and `autoApproveLimit`/`requireManualApproval` are
+  still returned in the merchant profile response, but nothing in the
+  current code ever sets an order to those statuses, and there is no
+  `/approve` or `/reject` endpoint — they are effectively unused leftovers,
+  **not a working manual-approval feature**.
+- The one real gate is a fixed **₹1,000 customer-side confirmation
+  threshold** (`CUSTOMER_APPROVAL_THRESHOLD` in `orders.ts`): an order at or
+  under ₹1,000 proceeds straight to payment; an order over ₹1,000 requires
+  a second, explicit confirmation from the buyer (`highValueConfirmed:
+  true`) before the order row is even created. This applies uniformly to
+  every merchant and is not configurable per merchant.
+
+### Razorpay payment integration
+- Payment is collected via Razorpay's embedded Checkout widget: on order
+  confirmation the server creates a Razorpay Order via the Razorpay SDK
+  (`server/src/lib/payment.ts`) and the browser opens Checkout against that
+  order id directly — no Razorpay Payment Link is created or used.
+- `POST /api/webhooks/razorpay` verifies the webhook payload's HMAC-SHA256
+  signature (`RAZORPAY_WEBHOOK_SECRET`) using a timing-safe comparison, and
+  is the sole source of truth for payment status: `payment.captured` marks
+  the order `paid` and stamps `paidAt`; `payment.failed` marks it `failed`.
+  An invalid signature is rejected before any event is processed.
+- The buyer page polls `GET /api/orders/:id` so the order status update
+  driven by the webhook appears without a page refresh.
+- A failed Razorpay API call while creating the order is caught, logged to
+  the audit trail, and does not roll back the already-created order —
+  payment creation can be considered a separate, retryable step.
+
+### Stock management
+- Stock is decremented by the order's quantity **exactly once**, and only
+  when the webhook reports `payment.captured` — never at order creation,
+  confirmation, or while a payment is merely pending. A `stockDeducted` flag
+  on the order guards against a duplicate/retried webhook delivery
+  double-deducting the same order.
+- A failed payment never touches stock (nothing to roll back, since it was
+  never decremented).
+- The decrement is done in a single Prisma transaction alongside the order
+  update, with an extra clamp-to-zero safeguard in case a race between two
+  concurrent orders' independent stock checks briefly lets it go negative.
+- The Catalog table polls every 5 seconds, so a merchant sees stock drop
+  from a real buyer purchase without refreshing the page.
+
+### Audit trail
+- Every significant server-side event is written to a generic `AuditLog`
+  table (`step`, `outcome`, JSON `metadata`, optional `merchantId`/`orderId`):
+  Store AI queries (including blocked hallucinations), merchant-directory
+  lookups, order confirmations, payment creation, webhook-driven payment
+  status changes, and stock decrements.
+- `GET /api/audit-logs` (merchant-scoped, never another merchant's data)
+  supports filtering by `status` (the log's `outcome`) and a `from`/`to`
+  date range.
+- The dashboard's **Live Orders & Audit Trail** page turns these raw log
+  rows into a human-readable narrative feed (e.g. "AI Shopping Agent asked
+  about '...' → shown Product X" or "stock decreased by 2 units"), live
+  every 4 seconds.
+
+### Merchant dashboard (pulls the above together)
+- **Onboarding**: account status, connecting a Razorpay account reference
+  (`PATCH /api/merchant/razorpay-account` — stores a string reference, not a
+  real Razorpay Connect/OAuth flow), and the catalog upload forms, plus the
+  shareable storefront link.
+- **Catalog**: product table with inline price/stock editing and the
+  blocked/sellable toggle, the add-product form, and the CSV upload card.
+- **Payments**: live-polled list of every order (product, size, qty,
   amount, requesting buyer session, status, Razorpay payment id, paid-at
-  timestamp), plus revenue/paid/pending/failed summary tiles computed only
+  timestamp) plus revenue/paid/pending/failed summary tiles computed only
   from real order rows.
-- **Live Orders & Audit Trail** page: a live-polled, human-readable feed
-  built from the raw `AuditLog` table (AI query results, hallucinations
-  blocked, order confirmations, payment status changes, stock decrements),
-  filterable by outcome and date range.
-- **Catalog** page: product table with inline price/stock editing and the
-  blocked/sellable toggle, plus the add-product form and CSV upload card.
-- Per-product blocking is saved via `PATCH /api/merchant/settings`
-  (`blockedProductIds`), which sets `Product.blocked` for the merchant's
-  catalog in one transaction.
+- **Live Orders & Audit Trail**: described above.
+- Per-product blocking (excluding a product from Store AI matching
+  entirely) is saved via `PATCH /api/merchant/settings` (`blockedProductIds`),
+  which sets `Product.blocked` for the merchant's catalog in one transaction.
+
+### Not yet implemented
+- Merchant manual order approval/rejection (see "Order approval rules" above).
+- Any refund, cancellation, or post-purchase order-management flow.
+- Password reset / email verification / multi-user merchant accounts.
+- A real Razorpay Connect/OAuth account-linking flow (the account "id" is
+  just a free-text reference string today).
 
 ## Environment variables
 
