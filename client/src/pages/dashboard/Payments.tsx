@@ -3,6 +3,10 @@ import type { OrderListResponse, OrderWithProduct } from '@ai-agent-storefront/s
 import { apiFetch, ApiError } from '../../api/client';
 import { ProductImage } from '../../components/ProductImage';
 
+// merchant_approved, pending_approval, and rejected are reserved for a
+// future merchant manual-approval feature and no order is ever created with
+// them today (every order is auto_approved) - kept here so this table
+// renders correctly without a code change if that feature ships later.
 const STATUS_STYLES: Record<string, string> = {
   paid: 'bg-green-100 text-green-800',
   auto_approved: 'bg-blue-100 text-blue-800',

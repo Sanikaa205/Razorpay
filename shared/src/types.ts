@@ -8,7 +8,9 @@ export interface MerchantProfile {
   name: string;
   email: string;
   razorpayAccountId: string | null;
+  /** Reserved for a future merchant manual-approval feature - not read by any route today; order approval currently uses a fixed ₹1,000 customer-side threshold instead. */
   autoApproveLimit: string;
+  /** Reserved for a future merchant manual-approval feature - not read by any route today; see autoApproveLimit above. */
   requireManualApproval: boolean;
   createdAt: string;
 }
@@ -143,6 +145,7 @@ export interface StoreAiQueryResponse extends StoreAiAnswer {
   conversationId: string;
 }
 
+/** 'pending_approval', 'merchant_approved', and 'rejected' are reserved for a future merchant manual-approval feature and are never set by any route today - every confirmed order goes straight to 'auto_approved'. */
 export type OrderStatus =
   | 'pending_approval'
   | 'auto_approved'
@@ -208,7 +211,9 @@ export interface OrderListResponse {
 }
 
 export interface MerchantSettingsRequest {
+  /** Reserved for a future merchant manual-approval feature - PATCH /api/merchant/settings ignores this field today and only ever applies blockedProductIds. */
   autoApproveLimit: number;
+  /** Reserved for a future merchant manual-approval feature - PATCH /api/merchant/settings ignores this field today; see autoApproveLimit above. */
   requireManualApproval: boolean;
   blockedProductIds: string[];
 }

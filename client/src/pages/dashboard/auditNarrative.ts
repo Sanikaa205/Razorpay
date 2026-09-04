@@ -40,6 +40,8 @@ export function narrateLogEntry(log: AuditLogEntry): string | null {
         ? `buyer confirmed${quantity} → order auto-approved (${reason})`
         : `buyer confirmed${quantity} → order held for approval (${reason})`;
     }
+    // Reserved for a future merchant manual-approval feature - no server
+    // route ever writes an 'order_approval' audit log today.
     case 'order_approval':
       return log.outcome === 'merchant_approved' ? 'merchant approved' : 'merchant rejected';
     case 'payment_status_updated':

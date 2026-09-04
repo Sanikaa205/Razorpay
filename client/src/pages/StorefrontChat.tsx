@@ -41,6 +41,11 @@ interface DiscoveryNotice {
   text?: string;
 }
 
+// 'merchant_approved', 'pending_approval', and 'rejected' below (and in the
+// status-message/color helpers further down) are reserved for a future
+// merchant manual-approval feature - no order is ever created with them
+// today (every order is auto_approved), kept so this page handles them
+// correctly without a code change if that feature ships later.
 const TERMINAL_STATUSES: OrderProfile['status'][] = ['paid', 'failed', 'rejected'];
 const PAYABLE_STATUSES: OrderProfile['status'][] = ['auto_approved', 'merchant_approved', 'failed'];
 const BUYER_SESSION_KEY = 'ai-agent-storefront:buyer-session-id';

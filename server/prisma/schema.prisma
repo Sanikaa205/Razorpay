@@ -13,6 +13,10 @@ enum ActionType {
   out_of_stock
 }
 
+/// pending_approval, merchant_approved, and rejected are reserved for a future
+/// merchant manual-approval feature and are not currently set or transitioned
+/// to by any route - every confirmed order today goes straight to
+/// auto_approved (see CUSTOMER_APPROVAL_THRESHOLD in server/src/routes/orders.ts).
 enum OrderStatus {
   pending_approval
   auto_approved
@@ -28,7 +32,13 @@ model Merchant {
   email                 String         @unique
   passwordHash          String
   razorpayAccountId     String?
+  /// Reserved for a future merchant manual-approval feature - not read by any
+  /// route today. Order approval currently uses a fixed ₹1,000 customer-side
+  /// confirmation threshold instead (CUSTOMER_APPROVAL_THRESHOLD in
+  /// server/src/routes/orders.ts), which is not configurable per merchant.
   autoApproveLimit      Decimal        @default(0) @db.Decimal(10, 2)
+  /// Reserved for a future merchant manual-approval feature - not read by any
+  /// route today; see autoApproveLimit above.
   requireManualApproval Boolean        @default(false)
   createdAt             DateTime       @default(now())
 

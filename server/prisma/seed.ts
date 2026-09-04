@@ -35,6 +35,7 @@ interface SeedMerchant {
   password: string;
   name: string;
   razorpayAccountId: string;
+  /** Reserved for a future merchant manual-approval feature - stored on the row but not read by any route today; order approval currently uses a fixed ₹1,000 customer-side threshold instead. */
   autoApproveLimit: number;
   products: SeedProduct[];
 }
