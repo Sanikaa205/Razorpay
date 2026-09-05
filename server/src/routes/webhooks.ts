@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { prisma } from '../prisma';
+import { getRazorpayClient } from '../lib/razorpay';
 
 export const webhooksRouter = Router();
 
@@ -65,55 +66,102 @@ webhooksRouter.post('/razorpay', async (req, res) => {
   }
 
   const newStatus = isCaptured ? 'paid' : 'failed';
+  // Tracks what actually happened to the order, for the final audit log
+  // below - distinct from `newStatus` (what this event nominally means),
+  // since an oversold order gets flipped back to 'failed' after initially
+  // being marked 'paid' by the claim above.
+  let finalOutcome: string = newStatus;
 
-  // Stock is deducted exactly once, exactly here - the only point an order
-  // has genuinely converted to money. It is never touched on order creation,
-  // approval, or while a payment is merely pending, and a failed payment
-  // never decrements it at all (nothing to "roll back" since it was never
-  // touched). `stockDeducted` guards against a retried/duplicate webhook
-  // delivery double-deducting the same order.
-  if (isCaptured && !order.stockDeducted) {
-    await prisma.$transaction([
-      prisma.order.update({
-        where: { id: order.id },
-        data: {
-          status: newStatus,
-          razorpayPaymentId: payment.id,
-          paidAt: new Date(),
-          stockDeducted: true,
-        },
-      }),
-      prisma.product.update({
-        where: { id: order.productId },
-        data: { stock: { decrement: order.quantity } },
-      }),
-    ]);
-
-    // Stock can't go negative even under a race with another concurrent
-    // order (the DB decrement above is atomic per-row, but two orders could
-    // each pass their own point-of-creation stock check moments apart) -
-    // clamp it back to zero rather than let the count read as negative.
-    const product = await prisma.product.findUnique({ where: { id: order.productId } });
-    if (product && product.stock < 0) {
-      await prisma.product.update({ where: { id: product.id }, data: { stock: 0 } });
-    }
-
-    await prisma.auditLog.create({
+  // `stockDeducted` is both the "has this order already been finalized"
+  // guard and the stock-deduction marker. It's flipped via an atomic
+  // conditional update (WHERE stockDeducted = false) rather than a
+  // read-then-write, so that two near-simultaneous deliveries of the same
+  // webhook (Razorpay's delivery is at-least-once, so retries happen) can
+  // never both pass the guard - only the request whose UPDATE actually
+  // matches the row (claimed.count === 1) proceeds to touch stock at all.
+  if (isCaptured) {
+    const claimed = await prisma.order.updateMany({
+      where: { id: order.id, stockDeducted: false },
       data: {
-        merchantId: order.merchantId,
-        orderId: order.id,
-        step: 'stock_updated',
-        outcome: 'decremented',
-        metadata: {
-          productId: order.productId,
-          quantityDeducted: order.quantity,
-          reason: 'Order payment captured',
-        },
+        status: newStatus,
+        razorpayPaymentId: payment.id,
+        paidAt: new Date(),
+        stockDeducted: true,
       },
     });
-  } else if (!order.stockDeducted) {
-    await prisma.order.update({
-      where: { id: order.id },
+
+    if (claimed.count === 1) {
+      // Atomic conditional decrement: only succeeds if enough stock is
+      // still there right now, in the same statement that checks it - no
+      // separate read-then-decrement gap for a concurrent order on the same
+      // product to race through. If two buyers both bought the last unit,
+      // whichever webhook's UPDATE commits second here affects 0 rows
+      // instead of driving stock negative.
+      const decremented = await prisma.$executeRaw`
+        UPDATE "products" SET "stock" = "stock" - ${order.quantity}
+        WHERE "id" = ${order.productId} AND "stock" >= ${order.quantity}
+      `;
+
+      if (decremented === 0) {
+        // Genuinely oversold: this payment captured for a unit that no
+        // longer exists. The charge already succeeded on Razorpay's side,
+        // so the order cannot be left standing as "paid" - refund it and
+        // mark it failed instead of silently keeping the buyer's money for
+        // something that can't be fulfilled.
+        await prisma.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+        finalOutcome = 'failed';
+
+        try {
+          await getRazorpayClient().payments.refund(payment.id, {
+            amount: Math.round(Number(order.orderValue) * 100),
+          });
+          await prisma.auditLog.create({
+            data: {
+              merchantId: order.merchantId,
+              orderId: order.id,
+              step: 'stock_updated',
+              outcome: 'oversold_refunded',
+              metadata: {
+                productId: order.productId,
+                quantityRequested: order.quantity,
+                reason: 'Payment captured after stock ran out; automatically refunded',
+              },
+            },
+          });
+        } catch (err) {
+          await prisma.auditLog.create({
+            data: {
+              merchantId: order.merchantId,
+              orderId: order.id,
+              step: 'stock_updated',
+              outcome: 'oversold_refund_failed',
+              metadata: {
+                productId: order.productId,
+                quantityRequested: order.quantity,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            },
+          });
+        }
+      } else {
+        await prisma.auditLog.create({
+          data: {
+            merchantId: order.merchantId,
+            orderId: order.id,
+            step: 'stock_updated',
+            outcome: 'decremented',
+            metadata: {
+              productId: order.productId,
+              quantityDeducted: order.quantity,
+              reason: 'Order payment captured',
+            },
+          },
+        });
+      }
+    }
+  } else {
+    await prisma.order.updateMany({
+      where: { id: order.id, stockDeducted: false },
       data: { status: newStatus, razorpayPaymentId: payment.id },
     });
   }
@@ -123,7 +171,7 @@ webhooksRouter.post('/razorpay', async (req, res) => {
       merchantId: order.merchantId,
       orderId: order.id,
       step: 'payment_status_updated',
-      outcome: newStatus,
+      outcome: finalOutcome,
       metadata: {
         event: event.event,
         razorpayPaymentId: payment.id,
